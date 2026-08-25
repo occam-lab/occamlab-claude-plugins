@@ -2,8 +2,8 @@
 
 Two hooks import this module:
 
-  ste100_remind.py  -- UserPromptSubmit, injects RULES as extra context
-  ste100_lint.py    -- Stop, lints the last assistant reply
+  ste100_remind.py      -- UserPromptSubmit, injects RULES as context
+  ste100_check_file.py  -- PostToolUse, lints prose written to a file
 
 Only three of the style rules are machine-checkable: sentence length,
 passive voice, and -ing verb forms. "One meaning per word" and "no
@@ -29,15 +29,31 @@ Write every prose explanation in ASD-STE100. These are hard rules:
 5. One meaning per word. Do not reuse a word for two senses in one reply.
 6. No dangling pronouns. Restate the noun when "it" or "this" could be ambiguous.
 7. Rewrite a subagent's prose into your own sentences. Never paste it through.
+8. Do not announce a tool call in prose. Report the result instead.
 
-Before you send this reply, check every sentence against rules 1 to 7.
+Substitutions for rules 3, 4, and 8. Apply them mid-sentence:
+
+    "X is moved by Y"       -> "Y moves X"
+    "are hardcoded in Y"    -> "Y hardcodes"
+    "the file was updated"  -> "I updated the file"
+    "using the account SID" -> "with the account SID"
+    "before calling X"      -> "before the call to X"
+    "let me check X"        -> delete the sentence
+
+Before you send this reply, check every sentence against rules 1 to 8.
 
 Exempt from every rule: code, diffs, commit messages, file paths, API names,
 library names, and framework names.
 </ste100-reminder>"""
 
 # The rules a regex can check, and the number each one carries above.
-# Rules 1, 5, 6, and 7 are not machine-checkable. They live in the text.
+#
+# Rules 1, 5, 6, 7, and 8 are not machine-checkable. They live in the
+# text alone. A corpus pass over ~1,400 real replies tested a
+# coordinated-finite-verb regex for rule 1. It hit 10.4% of replies at
+# roughly 30% precision, because English reuses one shape for nouns and
+# verbs ("both records are stale and the count is eleven"). Many hits
+# also sat inside narration, which rule 8 now deletes outright.
 RULE_NUMBERS = {"length": 2, "passive": 3, "-ing form": 4}
 
 # --------------------------------------------------------------------------
@@ -235,8 +251,9 @@ def lint(text):
 def format_findings(findings, limit=6):
     """Render findings as a rewrite instruction for the model."""
     lines = [
-        "Your reply breaks the ASD-STE100 rules this session requires.",
-        "Rewrite the prose. Keep every fact, path, and code block unchanged.",
+        "The prose you just wrote breaks the ASD-STE100 rules this session"
+        " requires.",
+        "Edit the file now. Keep every fact, path, and code block unchanged.",
         "",
     ]
     for sentence, rule, detail in findings[:limit]:
