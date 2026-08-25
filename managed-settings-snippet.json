@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "occamlab-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "occam-lab/occamlab-claude-plugins"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "ste100-discussion@occamlab-plugins": true
+  }
+}

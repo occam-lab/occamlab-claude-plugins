@@ -1,0 +1,14 @@
+{
+  "name": "occamlab-plugins",
+  "description": "Occam Lab internal Claude Code plugins",
+  "owner": {
+    "name": "Occam Lab Engineering"
+  },
+  "plugins": [
+    {
+      "name": "ste100-discussion",
+      "source": "./plugins/ste100-discussion",
+      "description": "Applies ASD-STE100 Simplified Technical English discipline to Claude Code's discussion prose, leaving coding behavior unchanged."
+    }
+  ]
+}

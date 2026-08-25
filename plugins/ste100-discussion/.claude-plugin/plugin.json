@@ -1,0 +1,10 @@
+{
+  "name": "ste100-discussion",
+  "description": "Applies ASD-STE100 Simplified Technical English discipline to Claude Code's discussion prose, while leaving coding behavior unchanged.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Occam Lab Engineering"
+  },
+  "keywords": ["writing-style", "ste100", "output-style"],
+  "category": "productivity"
+}
