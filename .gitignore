@@ -1,0 +1,28 @@
+# Claude Code local state (worktrees, session writes, etc.)
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Env files
+.env
+.env.*
+
+# Logs
+*.log
