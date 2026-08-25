@@ -8,7 +8,7 @@
     {
       "name": "ste100-discussion",
       "source": "./plugins/ste100-discussion",
-      "description": "Enforces ASD-STE100 Simplified Technical English on Claude Code's discussion prose through a forced output style, a per-turn reminder hook, and a Stop-hook prose linter. Leaves coding behavior unchanged."
+      "description": "Enforces ASD-STE100 Simplified Technical English on Claude Code's discussion prose through a forced output style, a per-turn reminder hook, and a blocking check on every prose file the model writes. Leaves coding behavior unchanged."
     }
   ]
 }

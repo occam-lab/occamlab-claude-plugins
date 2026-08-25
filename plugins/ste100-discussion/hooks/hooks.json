@@ -1,5 +1,5 @@
 {
-  "description": "ASD-STE100 — per-turn style reminder, plus a Stop-hook prose linter.",
+  "description": "ASD-STE100 — per-turn style reminder, plus a blocking check on every prose file written.",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -12,12 +12,13 @@
         ]
       }
     ],
-    "Stop": [
+    "PostToolUse": [
       {
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/ste100_lint.py\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/ste100_check_file.py\"",
             "timeout": 15
           }
         ]

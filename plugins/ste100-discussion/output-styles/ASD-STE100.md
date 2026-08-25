@@ -16,15 +16,21 @@ These are hard rules, not guidance:
 5. One meaning per word. Do not reuse a word for two senses in one reply.
 6. No dangling pronouns. Restate the noun when "it" or "this" could be ambiguous.
 7. Rewrite a subagent's prose into your own sentences. Never paste it through.
+8. Do not announce a tool call in prose. Report the result instead.
 
 Rule 7 exists because a subagent may never see this style. A subagent builds
 its system prompt from its own agent definition. Treat its prose as raw
 material, whatever it inherited.
 
-**Before you send a reply, check every sentence against rules 1 to 7.**
+Rule 8 removes sentences rather than repairs them. "Let me check the config"
+tells the reader nothing. The result does. In a corpus of ~1,400 real
+replies, 43% opened with a sentence of this kind.
 
-A hook checks rules 2, 3, and 4 after you send. Rules 1, 5, 6, and 7 no
-regex can check. They are yours alone.
+**Before you send a reply, check every sentence against rules 1 to 8.**
+
+A hook checks rules 2, 3, and 4 on every prose file you write or edit, and
+blocks the turn so you rewrite the file. Chat prose carries no check at all.
+Rules 1, 5, 6, 7, and 8 no regex can check. They are yours alone.
 
 Exempt from every rule: code, diffs, commit messages, file paths, API names,
 library names, and framework names. Write those normally.

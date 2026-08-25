@@ -9,6 +9,7 @@ Run from the repo root:
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -185,9 +186,21 @@ class TestRuleNumbering(unittest.TestCase):
         self.assertEqual(self.numbered(style), self.numbered(RULES),
                          "output style and RULES have drifted apart")
 
-    def test_rules_are_numbered_one_to_seven(self):
+    def test_rules_are_numbered_one_to_eight(self):
         nums = [int(n) for n, _ in self.numbered(RULES)]
-        self.assertEqual(nums, list(range(1, 8)))
+        self.assertEqual(nums, list(range(1, 9)))
+
+    def test_narration_rule_exists(self):
+        # Rule 8 removes sentences rather than repairing them. It is the
+        # one rule with no regex behind it and the highest density in
+        # the corpus: 43% of replies opened with narration.
+        text = dict((int(n), t) for n, t in self.numbered(RULES))
+        self.assertIn("announce", text[8].lower())
+
+    def test_substitutions_reach_the_model(self):
+        # Abstract advice on voice and tense did not move the corpus.
+        # A lookup table applies mid-sentence.
+        self.assertIn("->", RULES)
 
     def test_every_emitted_rule_number_exists(self):
         declared = {int(n) for n, _ in self.numbered(RULES)}
@@ -218,31 +231,8 @@ class TestRuleNumbering(unittest.TestCase):
             self.assertIn("rule %d" % RULE_NUMBERS[rule], message)
 
 
-class TestHooks(unittest.TestCase):
-    """End-to-end over the two hook entry points."""
-
-    def _run_lint_hook(self, payload, env=None):
-        full_env = dict(os.environ)
-        full_env.update(env or {})
-        proc = subprocess.run(
-            [sys.executable, os.path.join(HOOKS, "ste100_lint.py")],
-            input=json.dumps(payload), capture_output=True, text=True,
-            env=full_env)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        return proc.stdout.strip()
-
-    def _transcript(self, text, sidechain=False):
-        fh = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False,
-                                         encoding="utf-8")
-        fh.write(json.dumps({"type": "user", "message": {"content": "hi"}}) + "\n")
-        entry = {"type": "assistant",
-                 "message": {"content": [{"type": "text", "text": text}]}}
-        if sidechain:
-            entry["isSidechain"] = True
-        fh.write(json.dumps(entry) + "\n")
-        fh.close()
-        self.addCleanup(os.unlink, fh.name)
-        return fh.name
+class TestReminderHook(unittest.TestCase):
+    """The UserPromptSubmit hook is the only per-turn enforcement left."""
 
     def test_reminder_hook_emits_the_rules(self):
         proc = subprocess.run(
@@ -251,7 +241,7 @@ class TestHooks(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("ASD-STE100", proc.stdout)
         self.assertIn("subagent", proc.stdout)
-        self.assertIn("check every sentence against rules 1 to 7", proc.stdout)
+        self.assertIn("check every sentence against rules 1 to 8", proc.stdout)
         self.assertEqual(proc.stdout.strip(), RULES.strip())
 
     def test_reminder_hook_honours_opt_out(self):
@@ -261,59 +251,160 @@ class TestHooks(unittest.TestCase):
             capture_output=True, text=True, env=env)
         self.assertEqual(proc.stdout, "")
 
-    def test_default_mode_is_warn(self):
-        # A Stop-hook block appends a second reply rather than replacing
-        # the first. Warn must stay the default until that is worth it.
-        path = self._transcript(read_fixture("violating.md"))
-        out = json.loads(self._run_lint_hook({"transcript_path": path}))
-        self.assertNotIn("decision", out)
-        self.assertIn("ASD-STE100", out["systemMessage"])
 
-    def test_lint_hook_blocks_when_block_mode_is_set(self):
-        path = self._transcript(read_fixture("violating.md"))
-        out = json.loads(self._run_lint_hook(
-            {"transcript_path": path}, env={"STE100_LINT_MODE": "block"}))
+class TestFileCheckHook(unittest.TestCase):
+    """PostToolUse on Write|Edit -- the only blocking check.
+
+    A Stop hook fired after Claude Code printed the reply, so a block
+    appended a second reply rather than replacing the first. A
+    PostToolUse block stops the agentic loop before the next model
+    call, so the model rewrites the file before anyone reads it.
+    """
+
+    HOOK = os.path.join(HOOKS, "ste100_check_file.py")
+
+    def setUp(self):
+        self.guard_root = tempfile.mkdtemp(prefix="ste100-guard-test-")
+        self.addCleanup(shutil.rmtree, self.guard_root, True)
+
+    def _run(self, payload, env=None):
+        full_env = dict(os.environ)
+        full_env["STE100_GUARD_DIR"] = self.guard_root
+        full_env.update(env or {})
+        proc = subprocess.run(
+            [sys.executable, self.HOOK], input=json.dumps(payload),
+            capture_output=True, text=True, env=full_env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.strip()
+
+    @staticmethod
+    def _write(path="notes.md", text=None, session="s1"):
+        return {"session_id": session, "tool_name": "Write",
+                "tool_input": {"file_path": path,
+                               "content": text or read_fixture("violating.md")}}
+
+    @staticmethod
+    def _edit(path="notes.md", new=None, old="x", session="s1"):
+        return {"session_id": session, "tool_name": "Edit",
+                "tool_input": {"file_path": path, "old_string": old,
+                               "new_string": new or read_fixture("violating.md")}}
+
+    # -- what it blocks -----------------------------------------------
+
+    def test_blocks_a_violating_markdown_write(self):
+        out = json.loads(self._run(self._write()))
         self.assertEqual(out["decision"], "block")
         self.assertIn("ASD-STE100", out["reason"])
+        self.assertIn("rule", out["reason"])
 
-    def test_lint_hook_allows_compliant_text(self):
-        path = self._transcript(read_fixture("compliant.md"))
-        self.assertEqual(self._run_lint_hook({"transcript_path": path}), "")
+    def test_allows_a_compliant_markdown_write(self):
+        payload = self._write(text=read_fixture("compliant.md"))
+        self.assertEqual(self._run(payload), "")
 
-    def test_lint_hook_respects_the_loop_guard(self):
-        path = self._transcript(read_fixture("violating.md"))
-        out = self._run_lint_hook({"transcript_path": path,
-                                   "stop_hook_active": True},
-                                  env={"STE100_LINT_MODE": "block"})
-        self.assertEqual(out, "", "hook blocked twice — infinite loop risk")
+    def test_blocks_a_violating_edit(self):
+        out = json.loads(self._run(self._edit()))
+        self.assertEqual(out["decision"], "block")
 
-    def test_lint_hook_ignores_subagent_turns(self):
-        path = self._transcript(read_fixture("violating.md"), sidechain=True)
-        self.assertEqual(self._run_lint_hook({"transcript_path": path}), "")
+    def test_edit_judges_new_string_only(self):
+        # old_string is prose the model did not author this turn.
+        # Re-flagging it would block on somebody else's sentences.
+        payload = self._edit(new=read_fixture("compliant.md"),
+                             old=read_fixture("violating.md"))
+        self.assertEqual(self._run(payload), "")
 
-    def test_lint_hook_warn_mode_never_blocks(self):
-        path = self._transcript(read_fixture("violating.md"))
-        out = json.loads(self._run_lint_hook(
-            {"transcript_path": path}, env={"STE100_LINT_MODE": "warn"}))
-        self.assertNotIn("decision", out)
-        self.assertIn("ASD-STE100", out["systemMessage"])
+    # -- what it ignores ----------------------------------------------
 
-    def test_lint_hook_off_mode_is_silent(self):
-        path = self._transcript(read_fixture("violating.md"))
+    def test_ignores_source_files(self):
+        # Code is exempt from every rule. Without this filter the hook
+        # fires on 59% of writes that carry no prose at all.
+        for path in ("lib/app.ts", "main.py", "Makefile", "a.json", "s.css"):
+            payload = self._write(path=path)
+            self.assertEqual(self._run(payload), "", path)
+
+    def test_covers_the_prose_extensions(self):
+        for path in ("a.md", "b.markdown", "c.mdx", "d.txt", "e.rst", "f.adoc"):
+            payload = self._write(path=path, session="sess-" + path)
+            self.assertNotEqual(self._run(payload), "", path)
+
+    def test_ignores_other_tools(self):
+        payload = self._write()
+        payload["tool_name"] = "Bash"
+        self.assertEqual(self._run(payload), "")
+
+    def test_ignores_a_short_body(self):
+        self.assertEqual(self._run(self._write(text="A note.")), "")
+
+    def test_off_switch(self):
         self.assertEqual(
-            self._run_lint_hook({"transcript_path": path},
-                                env={"STE100_LINT_MODE": "off"}), "")
+            self._run(self._write(), env={"STE100_FILE_CHECK": "off"}), "")
 
-    def test_lint_hook_survives_a_broken_payload(self):
-        proc = subprocess.run(
-            [sys.executable, os.path.join(HOOKS, "ste100_lint.py")],
-            input="not json", capture_output=True, text=True)
+    # -- the loop guard -----------------------------------------------
+
+    def test_the_same_body_is_judged_once(self):
+        # An identical body means the model did not act. That is the
+        # true loop, so the hook goes quiet.
+        self.assertNotEqual(self._run(self._write()), "")
+        self.assertEqual(self._run(self._write()), "",
+                         "hook judged an identical body twice")
+
+    def test_a_second_dirty_rewrite_still_blocks(self):
+        # The point of the content key. A per-file cap would nudge once
+        # and then let a still-dirty file ship.
+        first = read_fixture("violating.md")
+        self.assertNotEqual(self._run(self._write(text=first)), "")
+        self.assertNotEqual(
+            self._run(self._write(text=first + "\n\nThe report was filed by "
+                                          "the agent before running the job.")),
+            "", "hook gave up after one block")
+
+    def test_a_file_blocks_at_most_three_times(self):
+        base = read_fixture("violating.md")
+        outs = [self._run(self._write(text=base + "\n\n" + "x " * i + "."))
+                for i in range(1, 6)]
+        self.assertEqual([bool(o) for o in outs],
+                         [True, True, True, False, False],
+                         "block cap did not hold")
+
+    def test_the_guard_is_per_file(self):
+        self.assertNotEqual(self._run(self._write(path="one.md")), "")
+        self.assertNotEqual(self._run(self._write(path="two.md")), "")
+
+    def test_the_guard_is_per_session(self):
+        self.assertNotEqual(self._run(self._write(session="a")), "")
+        self.assertNotEqual(self._run(self._write(session="b")), "")
+
+    # -- it must never trap a session ---------------------------------
+
+    def test_survives_a_broken_payload(self):
+        proc = subprocess.run([sys.executable, self.HOOK], input="not json",
+                              capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(proc.stdout.strip(), "")
 
-    def test_lint_hook_survives_a_missing_transcript(self):
-        out = self._run_lint_hook({"transcript_path": "/no/such/file.jsonl"})
-        self.assertEqual(out, "")
+    def test_survives_a_payload_with_no_tool_input(self):
+        self.assertEqual(self._run({"tool_name": "Write"}), "")
+
+    def test_survives_an_unwritable_guard_dir(self):
+        out = self._run(self._write(), env={"STE100_GUARD_DIR": "/dev/null/no"})
+        self.assertNotEqual(out, "", "a broken guard must not silence the check")
+
+
+class TestStopHookIsGone(unittest.TestCase):
+    """The chat-side linter is deleted, not disabled."""
+
+    ROOT = os.path.dirname(HERE)
+
+    def test_lint_hook_file_is_removed(self):
+        self.assertFalse(os.path.exists(os.path.join(HOOKS, "ste100_lint.py")))
+
+    def test_hooks_json_declares_no_stop_hook(self):
+        with open(os.path.join(self.ROOT, "hooks", "hooks.json"),
+                  encoding="utf-8") as fh:
+            config = json.load(fh)
+        self.assertNotIn("Stop", config["hooks"])
+        self.assertIn("PostToolUse", config["hooks"])
+        matcher = config["hooks"]["PostToolUse"][0]["matcher"]
+        self.assertEqual(matcher, "Write|Edit")
 
 
 if __name__ == "__main__":
