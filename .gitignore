@@ -1,3 +1,6 @@
+__pycache__/
+*.pyc
+.DS_Store
 # Claude Code local state (worktrees, session writes, etc.)
 .claude/
 
