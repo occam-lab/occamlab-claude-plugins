@@ -1,7 +1,7 @@
 {
   "name": "ste100-discussion",
-  "description": "Applies ASD-STE100 Simplified Technical English discipline to Claude Code's discussion prose, while leaving coding behavior unchanged.",
-  "version": "1.0.0",
+  "description": "Enforces ASD-STE100 Simplified Technical English on Claude Code's discussion prose through a forced output style, a per-turn reminder hook, and a Stop-hook prose linter. Leaves coding behavior unchanged.",
+  "version": "1.2.0",
   "author": {
     "name": "Occam Lab Engineering"
   },
